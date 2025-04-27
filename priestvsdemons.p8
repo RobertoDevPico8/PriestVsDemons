@@ -2,36 +2,21 @@ pico-8 cartridge // http://www.pico-8.com
 version 42
 __lua__
 function _init()
-	es = {}
-	fs = {}
-	
-	createlevel({
-		{1,1,1},{13,13,2},{1,13,3}
-	},{
-		{6,7,1},{8,8,0}
-	})
+	game_state=introstate
 end
 
 function _update()
-	p:update()
-	foreach(es, function(e)
-		e:update()
-	end)
-	foreach(fs, function(f)
-		f:update()
-	end)
+	laststate=game_state.state
+	
+	game_state:update()	
+	
+	if laststate~=game_state.state then
+		game_state:init()
+	end
 end
 
 function _draw()
-	cls()
-	map()	
-	p:draw()
-	foreach(es, function(e)
-		e:draw()
-	end)
-	foreach(fs, function(f)
-		f:draw()
-	end)	
+	game_state:draw()
 end
 -->8
 -- utils --
@@ -365,14 +350,17 @@ newfire = function(x,y)
 end
 -->8
 -- levels --
-createlevel=function(p,e)
-	foreach(p,function(i)
+createlevel=function(ptl,eny,ply)
+	foreach(ptl,function(i)
 		createportal(i[1],i[2],i[3])
 	end)
 	
-	foreach(e,function(i)
+	foreach(eny,function(i)
 		add(es,newenemy(i[1]*8,i[2]*8,i[3]))
-	end)	
+	end)
+	
+	p.x=ply.x
+	p.y=ply.y		
 end
 
 createportal=function(x,y,t)
@@ -387,6 +375,91 @@ createportal=function(x,y,t)
 	mset(x,y+1,s+16)
 	mset(x+1,y,s+1)
 	mset(x+1,y+1,s+17)
+end
+-->8
+-- game state --
+game_state = nil
+
+introstate = {
+	state="intro"
+}
+
+introstate.init = function(this)
+end
+
+introstate.update = function(this)
+  if btnp(❎) then
+  		game_state = menustate
+  end	
+end
+
+introstate.draw = function(self)
+  cls()
+  print("priest vs demons", 40, 50, 7)
+  print("press ❎ to start", 40, 60, 7)
+end
+
+menustate = {
+	state="menu"
+}
+
+menustate.init = function(this)
+end
+
+menustate.update = function(this)
+  if btnp(❎) then
+  		game_state = gamestate
+  end	
+end
+
+menustate.draw = function(self)
+  cls()
+  print("menu", 40, 50, 7)
+  print("press ❎ to start", 40, 60, 7)
+end
+
+
+gamestate = {
+	state="game"
+}
+
+gamestate.init = function(this)
+	es = {}
+	fs = {}
+	createlevel({
+		{1,1,1},{13,13,2},{1,13,3}
+	},{
+		{6,7,1},{8,8,0}
+	},{
+		x = 8,
+		y = 8
+	})
+end
+
+gamestate.update = function(this)
+ if btnp(🅾️) then
+ 		game_state = menustate
+ end
+  
+ p:update()
+	foreach(es, function(e)
+		e:update()
+	end)
+	foreach(fs, function(f)
+		f:update()
+	end)	
+end
+
+gamestate.draw = function(this)
+ cls()
+	map()	
+	p:draw()
+	foreach(es, function(e)
+		e:draw()
+	end)
+	foreach(fs, function(f)
+		f:draw()
+	end)  
 end
 __gfx__
 000000000444444000000000044ff440000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
