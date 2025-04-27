@@ -327,13 +327,7 @@ newenemy = function(x,y,t)
 		return o
 end
 
-newfire = function(x,y,t)
-	local c1,c2,c3=7,10,8
-	
-	if t==1 then
-		c1,c2,c3=7,11,3
-	end
-	
+newfire = function(x,y,t)	
 	local o = {
 		s=8,
 		anmspt=anim({8,9,10,11,12},8,0.1),
@@ -354,11 +348,7 @@ newfire = function(x,y,t)
 	end
 	
 	o.draw=function(this)
-		pal(13,this.c1)
-		pal(12,this.c2)
-		pal(1,this.c3)
 		spr(this.s,this.x,this.y)
-		pal()
 	end
 	
 	return o
