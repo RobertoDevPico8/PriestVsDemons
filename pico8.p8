@@ -1,40 +1,171 @@
 pico-8 cartridge // http://www.pico-8.com
 version 42
 __lua__
-function _init()
-	es = {}
-	local ol = {6,7,8,12,13,14}
-	local il = {8,9,10,11,13,14}
-	
-	for o in all(ol) do
-  for i in all(il) do
-    add(es,newenemy(o*8,i*8))
-  end
+global=_ENV
+finish=false
+restart=false
+gameover=false
+gameovertmr=30
+musicplay=false
+
+function resetgame()
+	gameovertmr-=1	
+	if gameovertmr<=0 then
+		crrtlv-=1
+		nextlv=true
+		gameover=false
+		gameovertmr=30
 	end
 end
 
+function restartlevel()
+	crrtlv-=1 
+ nextlv=true 
+end
+
+function _init()
+ menuitem(1, "restart level", function() 
+ 	restart=true
+ end)
+ --menuitem(2, "next", function() nextlv=true end)
+end
+
 function _update()
-	p:update()
-	foreach(es, function(e)
-		e:update()
+ if restart then
+ 	restartlevel()
+ end
+ 
+ restart=false
+ 
+	if gameover then
+	 resetgame()
+		return
+	end
+	
+	if crrtlv == #levels then
+	 finish=true
+		return
+	end
+	
+	if nextlv then
+	 crrtlv+=1
+		nextlv=false
+		generatlevel()
+	end
+	
+	if crlvl != nil and crlvl.text != nil and
+		texttmr>=0 then
+	 texttmr-=1
+	 return
+	end
+	
+	foreach(enemies, function(e)
+		e:control()
 	end)
+	foreach(fires, function(f)
+		f:control()
+	end)
+	foreach(enemyfires,function(f)
+		f:control()
+	end)	
+	p:control()
+	levellogic()
 end
 
 function _draw()
 	cls()
-	map()	
+	map()
+	if gameover then
+		reload()
+		print("you died",40,63,8)
+		return
+	end
+	
+	if finish then
+		reload()
+		print("thank you my child",20,20,10)
+		spr(64,40,40,4,4)
+		if musicplay==false then
+			music(0)
+			musicplay=true
+		end
+		return
+	end
+	
+	if crlvl != nil and crlvl.text != nil and
+		texttmr>=0 then
+		printtxt()
+	end
+	
 	p:draw()
-	foreach(es, function(e)
+	foreach(enemies,function(e)
 		e:draw()
 	end)
+	foreach(fires,function(f)
+		f:draw()
+	end)
+	foreach(enemyfires,function(f)
+		f:draw()
+	end)
+	print(crrtlv,120,120,2)	
 end
 -->8
 -- utils --
-sign = function(v)
-	return v == 0 and 0 or sgn(v)
+anim=function(sf,d,t)
+	return {sprt=d,sf=sf,si=1,sl=count(sf),st=t}
 end
 
-rects_overlap = function(o1,o2)
+updateanimation=function(o)
+	if o==nil 
+	 or o.si==nil
+	 or o.sl==1 then
+	 return o
+	end
+	
+ if o.si<o.sl+0.9 then
+  o.si+=o.st
+ else
+  o.si=1
+ end
+ 
+ o.sprt=o.sf[flr(o.si)] 
+ return o
+end
+	
+getsgn = function(v)
+	return v==0 and 0 or sgn(v)
+end
+
+pointcollideflag=function(x,y,flag) 
+  return fget(mget(x/8,y/8))==flag
+end
+
+flgmtch=function(t, fs)
+  for f in all(fs) do
+    if fget(t,f) then
+      return true
+    end
+  end
+  return false
+end
+
+collideflag=function(x,y,b,flags)
+	 for i=x+b.x,x+b.x+b.w-1,b.w-1 do
+    if flgmtch(mget(i/8,(y+b.y)/8),flags) or
+         flgmtch(mget(i/8,(y+b.y+b.h-1)/8),flags) then
+          return true
+    end
+  end
+  for i=y+b.y,y+b.y+b.h-1,b.h-1 do
+    if flgmtch(mget((x+b.x)/8,i/8),flags) or
+         flgmtch(mget((x+b.x+b.w-1)/8,i/8),flags) then
+          return true
+    end
+  end  
+  return false
+end
+
+function rects_overlap(o1,o2)
 		local o1x,o1y,o2x,o2y=
 			o1.x+o1.box.x,
 			o1.y+o1.box.y,
@@ -47,35 +178,29 @@ rects_overlap = function(o1,o2)
          o1y + o1.box.h - 1 > o2y
 end
 
-pointcollideflag = function(x,y,flag) 
-  return fget(mget(x/8,y/8))==flag
-end
-
-box_hits = function(x, y, w, h, flags)
-	local corners = {
-		{x, y},
-		{x + w - 1, y},
-		{x, y + h - 1},
-		{x + w - 1, y + h - 1}
-	}
-	for corner in all(corners) do
-		local tx = flr(corner[1] / 8)
-		local ty = flr(corner[2] / 8)
-		for flag in all(flags) do
-			if fget(mget(tx, ty), flag) then
-				return true
-			end
+--dinamic reference values needs to set everytime
+class = setmetatable({
+		new=function(self,tbl)
+			tbl = tbl or {}
+			
+			return setmetatable(tbl,{ __index=self})
 		end
-	end
-	return false
-end
-
+},{ __index=_ENV})
+-->8
+-- player --
 butarr={1,2,0,3,5,6,3,4,8,7,4,0,1,2,0}
 butarr[0]=0
 dirx={-1,1, 0,0,-0.7, 0.7,0.7,-0.7}
 diry={ 0,0,-1,1,-0.7,-0.7,0.7, 0.7}
+ptnf=25--potion full
+ptntmr=0--potion stop time
 
-getxy = function(p)
+function getptnsprt()
+	local ptnsprt=20+flr(p.potion*0.5)
+	return ptnsprt>ptnf and ptnf or ptnsprt
+end
+
+function getxy()
   local a,b,dir=p.x,p.y,butarr[btn()&0b1111]
   if lastdir!=dir and dir>=5 then
 	  a=flr(a)+0.5
@@ -86,172 +211,824 @@ getxy = function(p)
 	  b+=diry[dir]*p.spd
   end
 	 lastdir=dir
-	 return {dx=a-p.x,dy=b-p.y,dir=dir}
+	 return {x=a,y=b,dir=dir}
 end
--->8
--- player --
-p = {
-	s=1,
-	x=64,
-	y=64,
-	spd=1,
-	box={x=0,y=0,w=8,h=8}	
-}
 
-p.update = function(this)
-	xy = getxy(this)
-	
-	local x, y, w, h=
-			this.x + this.box.x,
-			this.y + this.box.y,
-			this.box.x + this.box.w,
-			this.box.y + this.box.h
-	
-	local collwallx,collwally=
-			box_hits(x+xy.dx,y,w,h,{0}),
-			box_hits(x,y+xy.dy,w,h,{0})
-		
-	if collwallx==false then
-		if collwally then
-			this.x+=sign(xy.dx)*1
-		else
-			this.x+=xy.dx
+p = class:new({
+	sprt=1,
+	x=63,
+	y=63,
+	spd=1,
+	potion=0,
+	clde=true,--collideable
+	dirsprt={
+ 	anim({1,2},1,0.1),
+ 	anim({1,2},1,0.1),
+ 	anim({3,4},3,0.1),
+ 	anim({1,2},1,0.1),
+ 	anim({3,4},3,0.1),
+ 	anim({3,4},3,0.1),
+ 	anim({1,2},1,0.1),
+ 	anim({1,2},1,0.1)
+ },
+ dirf={1,0,0,0,1,0,0,1},
+ fx=false,
+ fy=false,
+	box={x=0,y=0,w=8,h=8},
+	cetmr=60,
+	control = function(_ENV)
+		local lx,ly,cex,cey=x,y,false,false
+
+		if btn(5) and getptnsprt()==ptnf then
+			potion=0
+			sfx(2)
+			global.ptntmr=35
 		end
+		
+		if global.ptntmr>0 then
+			global.ptntmr-=1
+			clde=false
+		else
+			clde=true
+		end		
+			
+		if collideflag(x,y,box,{5}) then
+			spd=0.2
+		end
+		local xy=getxy()
+		spd=1--reset spd
+		
+		if xy.dir>0 then
+	  sprt=updateanimation(dirsprt[xy.dir]).sprt
+	  fx=dirf[xy.dir]==1
+  else
+   sprt=1
+  end
+  
+  if clde then
+			foreach(enemies, function(e)
+				if rects_overlap({x=xy.x,y=y,box=box},e) then cex=true	end
+				if rects_overlap({x=x,y=xy.y,box=box},e) then cey=true	end
+			end)
+		end
+		
+		if cex==false and cey==false then
+			cetmr=60
+		else
+			cetmr-=1
+		end
+		
+		if cetmr<=0 then
+			sfx(1)
+			global.gameover=true
+		end
+		
+		local collwallx,collwally=
+			collideflag(xy.x,y,box,{0}),
+			collideflag(x,xy.y,box,{0})
+		
+		if cex==false and collwallx==false then
+			if collwally and abs(xy.x)==0.7 then
+				xy.x=0.2
+			end			
+			x=xy.x -- no collsion in x
+		end
+		
+		if cey==false and collwally==false then
+			if collwallx and abs(xy.y)==0.7 then
+				xy.y=-.2
+			end
+			y=xy.y -- no collsion in y
+		end		
+		
+		if collideflag(x,y,box,{2}) then
+			local ix,cdv=0,crlvl.dinval
+			for i=1,#cdv do
+			 if abs(cdv[i][1]*8-x)<1 and
+			 	 abs(cdv[i][2]*8-y)<1 then
+				 ix=i
+				 break
+			 end
+			end
+			
+			if ix>0 then
+				mset(cdv[ix][1],cdv[ix][2],0)
+				mset(cdv[ix][3],cdv[ix][4],16)
+			end
+		end
+		
+		if collideflag(x,y,box,{4}) then
+			local ge=global.enemyfires
+			for i=1,#ge do
+				if abs(ge[i].ax-x)<1 and
+			 	 abs(ge[i].ay-y)<1 then
+				 ge[i].inactive=false
+					break
+				end
+			end
+		end
+	end,
+	draw = function(_ENV)
+		if clde==false then
+			pal(4,0)
+			pal(15,1)
+			pal(2,1)
+			pal(9,1)
+			pal(10,1)
+			pal(7,0)
+		end
+		spr(sprt,x,y,1,1,fx,fy)
+		pal()
+		printpotion()
+	end
+})
+
+function printpotion()
+ spr(getptnsprt(),0,0)
+	local txt,clr=flr(ptntmr),10
+		
+	if ptntmr<=0 then
+		txt=""
+	elseif ptntmr<10 then
+	 clr=8
 	end
 	
-	if collwally==false then
-		if collwallx then
-			this.y+=sign(xy.dy)*1
-		else
-			this.y+=xy.dy
-		end
-	end	
+	print(txt,120,0,clr)	
 end
 
-p.draw = function(this)
-	spr(this.s,this.x,this.y)
+function printtxt()
+ for i=2,#crlvl.text do
+		 local sprttxt = sub(crlvl.text[i],1,4)
+		 
+		 if sprttxt == "sprt" then
+		 	spr(sub(crlvl.text[i],5,6),40,(i-1)*8)
+		 else
+				print(crlvl.text[i],40,(i-1)*8,10)
+	 	end
+	 end
 end
-
 -->8
--- enemies --
-es = {}
+-- fire --
+fire = class:new({
+	sprt=8,
+	anmspt={},
+	x=0,
+	y=0,
+	tmr=60,
+	control=function(_ENV)
+		tmr-=0.5
+		sprt=updateanimation(anmspt).sprt
+		if tmr<=0 then
+			del(fires,_ENV)
+		end
+	end,
+	draw=function(_ENV)
+		spr(sprt,x,y)
+	end
+})
 
-newenemy = function(x,y)
-		local o = {
-			s=5,
-			x=x,
-			y=y,
-			xd=0,
-			yd=0,
-			st=0,-- 0- far 1-wall 2-find
-			spd=1,
-			tmr=60,
-			fov=4,
-			box={x=2,y=4,w=5,h=3}	
-		}
-		
-		o.update = function(this)
-			if this.st==2 then
-				this:move(this)				
-			else
-				this:find(this)
-			end		
-		end
-		
-		o.draw = function(this)
-			pal(2,2+this.st*4)
-			spr(this.s,this.x,this.y)
-			pal()
-		end
-		
-		o.find = function(this) 		
-			this.xd=flr((p.x-this.x)/this.fov)
-		 this.yd=flr((p.y-this.y)/this.fov)
-			if abs(this.xd)>8 or abs(this.yd)>8 then
-				this.st=0
+-- enemy --
+enemy = class:new({
+		sprt=5,
+		anmspt={},
+		x=0,
+		y=0,
+		xd=0,-- step x 0 upto 8
+		yd=0,-- step y 0 upto 8
+		mx=0,
+		my=0,
+		tmr=60,
+		spd=0.4, -- speed
+		st=0,-- 0- far 1-wall  2-find
+		box={x=2,y=4,w=5,h=3},
+		fov={{6,3},{3,1},{2,0}},--field of view number of sprites
+		findplayer = function(_ENV)
+			if global.ptntmr>0 then
 				return
 			end
 			
-			this.mx=this.x+4
-		 this.my=this.y+4 
-	 	this.st=2
+			local cfov=fov[1]
+			if abs(p.x-x)<15 and abs(p.y-y)<15 then
+			 cfov=fov[3]
+			elseif abs(p.x-x)<23 and abs(p.y-y)<23 then
+				cfov=fov[2]
+			end
+			
+			xd=flr((p.x-x)/cfov[1])
+		 yd=flr((p.y-y)/cfov[1])
+			if abs(xd)>8 or abs(yd)>8 then
+				st=0
+				return
+			end
+			
+			mx=x+4
+		 my=y+4 
+	 	st=2
 
-		 for i=1,this.fov-1 do
-		 	this.mx+=this.xd
-		 	this.my+=this.yd		 	
-		 	if pointcollideflag(this.mx,this.my,1) then
-		 	 this.st=1
+		 for i=1,cfov[2] do
+		 	mx+=xd
+		 	my+=yd		 	
+		 	if pointcollideflag(mx,my,1) then
+		 	 st=1
 		 	end
 		 end
-		end
-		
-		o.move = function(this)	
-			this.tmr-=2
+		end,
+		move = function(_ENV)
+			if global.ptntmr>0 then
+				return
+			end
 			
+			tmr-=2			
 			local xy,xyc,xsd,ysd,cex,cey,didmv=
-				{x=this.x,y=this.y},
-				{x=this.x,y=this.y},
-				sign(this.xd),
-				sign(this.yd),
+				{x=x,y=y},
+				{x=x,y=y},
+				getsgn(xd),
+				getsgn(yd),
 				false,
 				false,
 				false
 			
-			local x, y, w, h=
-				this.x + this.box.x,
-				this.y + this.box.y,
-				this.box.x + this.box.w,
-				this.box.y + this.box.h
-						 
-			if abs(this.xd)>=abs(this.yd) then
-				xy.x=this.x+xsd*this.spd
-				xyc.x=this.x+xsd*(this.spd+1)--2 must be > spd for collision detection
-			 
-			 -- try to go around wall			 
-				if box_hits(xy.x,y,w,h,{0}) then
-					xy.x=this.x
-				 xyc.x=this.x
-					xy.y=this.y+ysd*this.spd
-			 	xyc.y=this.y+ysd*2
-				end
-			else
-			 xy.y=this.y+ysd*this.spd
-			 xyc.y=this.y+ysd*2
+			if abs(xd)>=abs(yd) then
+				xy.x=x+xsd*spd
+				xyc.x=x+xsd*2--2 must be > spd for collision detection
 			 
 			 -- try to go around wall
-			 if box_hits(x,xy.y,w,h,{0}) then
-					xy.y=this.y
-			  xyc.y=this.y
-					xy.x=this.x+xsd*this.spd
-				 xyc.x=this.x+xsd*2				
+				if collideflag(xy.x,y,box,{0}) then
+					xy.x=x
+				 xyc.x=x
+					xy.y=y+ysd*spd
+			 	xyc.y=y+ysd*2
+				end
+			else
+			 xy.y=y+ysd*spd
+			 xyc.y=y+ysd*2
+			 
+			 -- try to go around wall
+			 if collideflag(x,xy.y,box,{0}) then
+					xy.y=y
+			  xyc.y=y
+					xy.x=x+xsd*spd
+				 xyc.x=x+xsd*2				
 				end
 			end
 			
-			foreach(es, function(e)
-				if e != this then
-					if rects_overlap({x=xyc.x,y=this.y,box=this.box},e) then cex=true	end
-				 if rects_overlap({x=this.x,y=xyc.y,box=this.box},e) then cey=true	end
+			foreach(enemies, function(e)
+				if e != _ENV then
+					if rects_overlap({x=xyc.x,y=y,box=box},e) then cex=true	end
+				 if rects_overlap({x=x,y=xyc.y,box=box},e) then cey=true	end
 				end				
 			end)
 			
-			if cex==false and box_hits(xy.x,this.y,w,h,{0,3})==false then
-				this.x=xy.x -- no collsion in x
+			if cex==false and collideflag(xy.x,y,box,{0,3})==false then
+				x=xy.x -- no collsion in x
 				didmv=true
 			end
 			
-			if cey==false and box_hits(this.x,xy.y,w,h,{0,3})==false then
-				this.y=xy.y -- no collsion in y
+			if cey==false and collideflag(x,xy.y,box,{0,3})==false then
+				y=xy.y -- no collsion in y
 				didmv=true
 			end
-							
-			if this.tmr<=0 then
-				this.tmr=60
-				this.st=0
+			
+			if didmv then
+				sprt=updateanimation(anmspt).sprt
 			end
+			
+			if collideflag(x,y,box,{1}) then
+				add(fires,fire:new({x=x,y=y,anmspt=anim({8,9,10,11,12},8,0.1)}))
+				del(enemies,_ENV)
+				sfx(0)
+				p.potion+=1
+			end
+				
+			if tmr<=0 then
+				tmr=60
+				st=0
+			end
+		end,
+		control = function(_ENV)		
+			if st==0 then
+				findplayer(_ENV)
+			elseif  st==1 then
+				findplayer(_ENV)
+			elseif st==2 then
+				move(_ENV)
+			end
+		end,
+		draw = function(_ENV)	
+			spr(sprt,x,y)
+		end
+})
+
+enemyfire=class:new({
+	sprt=35,
+	inactive=true,
+	anmspt={},
+	x=0,
+	y=0,
+	ax=0,
+	ay=0,
+	box={x=2,y=2,w=6,h=6},
+	control=function(_ENV)
+		if inactive then
+			return
+		end 
+		sprt=updateanimation(anmspt).sprt
+		if rects_overlap({x=x,y=y,box=box},p) then 
+			global.gameover=true
+		end
+	end,
+	draw=function(_ENV)
+	 if inactive then
+			return
+		end
+		spr(sprt,x,y)
+	end
+})
+-->8
+-- levels --
+function generatlevel()
+	crlvl=crtlvl(levels[crrtlv])
+	texttmr=crlvl.text[1] or 0
+	p.potion=0--reset potion
+	fires={}
+	enemies={}
+	enemyfires={}
+	enyhlstmr=0
+	enemyeggs={}
+	p.x=crlvl.p.x
+	p.y=crlvl.p.y
+	foreach(crlvl.enemies, function (e)
+		add(enemies,enemy:new({x=e[1],y=e[2],anmspt=anim({5,6,7},5,0.2)}))
+	end)
+	foreach(crlvl.enemyeggs, function (e)
+		add(enemyeggs,{e[1],e[2],e[3],e[4],e[5],e[6],e[7],e[8]})
+	end)
+	foreach(crlvl.eneyfires, function (ef)
+		add(enemyfires,enemyfire:new(
+				{	x=ef[3]*8,y=ef[4]*8,
+					ax=ef[1]*8,ay=ef[2]*8,
+					anmspt=anim({35,36,37,38,39},35,0.1)
+				})
+			)
+	end)	
+	reload()	
+	crlvl.createmap()
+end
+
+function levellogic()	
+	if crlvl.pass() then
+		nextlv=true
+		return
+	end
+	enyhlstmr+=0.1
+	if enemyeggs!=nil or
+		#enemyeggs==0 then
+		foreach(enemyeggs,function(e)
+			if enyhlstmr>=e[7]-5 and
+			 e[8]==0 then
+			 e[8]=1
+				gnrspr(e[1],e[2],e[3],e[4],e[5],e[6],42)
+			end
+			if enyhlstmr>=e[7] then
+				gnrspr(e[1],e[2],e[3],e[4],e[5],e[6],0)
+				local nes={}
+				gnrens(e[1],e[2],e[3],e[4],e[5],e[6],nes)
+				foreach(nes, function (ne)
+					add(enemies,enemy:new({x=ne[1],y=ne[2],anmspt=anim({5,6,7},5,0.2)}))
+				end)
+				del(enemyeggs,e)
+			end
+		end)
+	end
+end
+
+function noenemiespass()
+	return #enemies == 0 and 
+		#enemyeggs == 0 
+end
+
+function gnrens(i,j,w,h,k,l,ar)
+	for n=0,w-1,k do
+		for m=0,h-1,l do
+			add(ar,{(i+n)*8+1,(j+m)*8+1})
+		end
+	end
+end
+
+function gnrspr(i,j,w,h,k,l,sprt)
+	for n=0,w-1,k do
+		for m=0,h-1,l do
+			mset((i+n),(j+m),sprt)
+		end
+	end
+end
+
+--create level
+crtlvl=function(lv)
+	local lo={}
+	lo.p={x=lv[1][1],y=lv[1][2]}
+	local ar={}
+	foreach(lv[2],function (e)		
+		gnrens(e[1],e[2],e[3],e[4],e[5],e[6],ar)		
+	end)
+	lo.enemies=ar
+	lo.eneyfires=lv[6] or {}
+	lo.enemyeggs=lv[7] or {}
+	lo.text=lv[9] or {}
+	lo.pass=noenemiespass
+	lo.createmap=function()
+		foreach(lv[3],function (b)
+			mset(b[1],b[2],17)
+			mset(b[1],b[2]+1,33)
+			mset(b[1]+1,b[2],18)
+			mset(b[1]+1,b[2]+1,34)
+		end)
+		
+		if lv[4]==nil then return end
+		
+		foreach(lv[4],function (c)		
+			if c[1]==0 then
+				for i=c[2],c[3] do
+					mset(c[4],i,16)
+				end
+			else
+			 for i=c[2],c[3] do
+					mset(i,c[4],16)
+				end
+			end
+		end)
+		
+		if lv[5]!=nil then
+			foreach(lv[5], function(o)
+				mset(o[1],o[2],32)
+				mset(o[3],o[4],19)
+			end)
 		end
 		
-		return o
+		if lv[6]!=nil then
+			foreach(lv[6], function(o)
+				mset(o[1],o[2],40)
+			end)
+		end
+		
+		if lv[7]!=nil then
+			foreach(lv[7], function(e)
+				gnrspr(e[1],e[2],e[3],e[4],e[5],e[6],41)
+			end)
+		end
+		
+		if lv[8]!=nil then
+			foreach(lv[8], function(o)
+				gnrspr(o[1],o[2],o[3],o[4],1,1,26)
+			end)
+		end			
+		lo.dinval=lv[5]
+	end
+	return lo
 end
+
+crrtlv=0
+nextlv=true
+levels = {
+	{
+		{8,8},
+		{},
+		{{1,13}},
+		{},
+		{},
+		{},
+		{{1,8,2,2,1,1,20,0}},
+		{},
+		{
+			120,
+			"priest,",
+			"help me kill all",
+			"these little demons!",
+			"bring them to the",
+			"blue circle"
+		}	
+	},{
+		{8,8},
+		{
+			{1,8,14,2,1,1}
+		},
+		{{6,11}},
+		{},{},{},
+		{},{},
+		{
+			120,
+			"press start if you",
+			"need to restart level"
+		}	
+	},{
+		{8,8},
+		{
+			{1,7,2,5,1,1},
+			{9,13,2,2,1,1}
+		},
+		{{1,1},{12,13}},
+		{
+			{0,1,11,3},
+			{1,2,14,12}
+		},
+		{{1,13,1,12}},
+		{},{},{},
+		{
+		 120,
+			"if potion full",
+			"sprt25",
+			"press ❎ to be",
+			"invisible to enemies"
+		}		
+	},{
+		{8,110},
+		{
+		 {7,2,2,1,1,1},
+			{7,1,2,7,1,3}
+		},
+		{{11,11},{13,11}},
+		{{0,4,14,9}}
+	},{
+		{63,63},
+		{{1,7,3,2,1,1}},
+		{{11,5},{13,5}},
+		{{0,5,14,5},{0,1,10,10}}
+	},{
+	 {8,110},
+	 {{2,2,3,5,1,2}},
+	 {{7,1}},
+	 {
+	 	{0,3,14,6}
+	 }
+	},{
+	 {8,8},
+	 {{13,1,2,6,1,1}},
+	 {{13,12}},
+	 {
+	 	{0,1,13,2},{0,1,13,3},
+	 	{0,2,14,6},{0,2,14,7},
+	 	{0,1,13,11},{0,1,13,12}
+	 },
+	 {
+	 	{2,2,3,2},{2,4,3,4},
+	 	{2,6,3,6},{2,8,3,8},
+	 	{2,14,3,14},{3,10,2,10}
+	 },
+	 {{7,1,8,8},{1,8,9,8}}
+	},{
+	 {8,110},
+	 {{1,3,5,2,1,1},
+	 	{3,5,3,2,1,1}},
+	 {{7,13}},
+	 {
+	 	{0,4,14,6}
+	 },
+	 {},{},{},{},
+		{
+			120,
+			"   advance to the gap",
+			"   to unlock a path",
+			"   on the right side."
+		}
+	},{
+	 {8,110},
+	 {{1,3,5,2,1,1},
+	 	{1,5,3,2,1,1}},
+	 {{7,13}},
+	 {
+	 	{0,4,14,6}
+	 },
+	 {},{},{},{},
+		{
+			120,
+			"   try this time",
+			"   on the other side."
+		}
+	},{
+	 {8,110},
+	 {{2,2,4,5,1,2}},
+	 {{7,1}},
+	 {
+	 	{0,3,14,6}
+	 }
+	},{
+		{20,112},
+		{{1,4,4,2,1,1}},
+		{{1,2},{3,2}},
+		{{0,1,14,5}}
+	},{
+	 {8,110},
+	 {{1,4,5,3,1,1}},
+	 {{7,13}},
+	 {
+	 	{0,4,14,6}
+	 },
+	 {},{},{},{},
+		{
+			120,
+			"you don't need to ",
+			"attract all the enemy",
+			"lines at once."
+		}
+	},{
+	 {8,110},
+	 {{1,2,5,5,1,2}},
+	 {{7,1}},
+	 {
+	 	{0,3,14,6}
+	 }
+	},{
+	 {8,110},
+	 {{2,2,3,5,1,2},
+	 	{5,1,1,6,1,1}},
+	 {{7,1}},
+	 {
+	 	{0,3,14,6}
+	 }
+	},{
+		{40,110},
+		{{1,7,2,3,1,1}},
+		{{1,11}},
+		{{0,2,14,3},{0,2,14,4},{0,1,14,6}},
+		{{3,8,4,8}}
+	},{
+		{60,112},
+		{{1,4,2,4,1,1},{12,4,2,3,1,1},{13,7,2,2,1,1}},
+		{{1,2},{12,2}},
+		{{0,1,13,3},{1,4,10,13},{0,1,13,11}},
+		{{3,14,5,14}}
+	},{
+	 {8,110},
+	 {{2,1,3,5,1,2},
+	 	{2,2,2,5,1,2},
+	 	{5,1,1,6,1,1}},
+	 {{7,1}},
+	 {
+	 	{0,3,14,6}
+	 }
+	},{
+		{8,8},
+		{
+			{8,1,3,8,2,1},
+			{1,10,8,3,1,2}
+		},
+		{{10,11},{11,6},{6,13}},
+		{
+	 	{0,2,2,7},{1,2,2,9}
+	 }
+	},{
+	 {8,8},
+	 {{13,1,2,6,1,1}},
+	 {{13,12}},
+	 {
+	 	{0,1,13,2},{0,2,14,4},
+	 	{0,1,13,6},{0,2,14,8},
+	 	{0,1,13,11},{0,1,13,12}
+	 },
+	 {},
+	 {{4,14,11,14},{8,14,12,14}}
+	},{
+		{8,8},
+		{
+			{8,1,3,8,2,1},
+			{1,10,8,3,1,2}
+		},
+		{{10,11},{11,6},{6,13}},
+		{
+	 	{0,2,4,7},{1,2,4,9}
+	 }
+	},{
+		{8,8},
+		{},
+		{{10,11}},
+		{},
+		{},
+		{},
+		{{8,9,7,1,1,1,20,0},{7,9,1,6,1,1,30,0}},
+		{},
+		{
+		 90,
+			"you are almost there",
+			"my child"
+		}	
+	},{
+		{8,8},
+		{
+			{1,7,2,5,1,1},
+			{6,13,3,2,1,1},
+			{9,14,3,1,1,1}
+		},
+		{{1,1},{12,13}},
+		{
+			{0,1,11,3},
+			{1,2,14,12}
+		},
+		{{1,13,1,12}}
+	},{
+	 {80,100},
+	 {{12,5,2,6,1,3}},
+	 {{7,8},{9,8}},
+	 {{0,1,10,6},{0,6,10,11},{1,6,11,11}}
+	},{
+	 {8,110},
+	 {{2,1,3,5,1,2},
+	 	{1,2,3,5,1,2},
+	 	{5,1,1,6,1,1}},
+	 {{7,1}},
+	 {
+	 	{0,3,14,6}
+	 }
+	},{
+		{8,8},
+		{
+			{1,10,6,2,1,1},
+			{8,3,7,1,1,1}
+		},
+		{{10,1},{2,13},{4,13}},
+		{
+			{0,1,12,7},
+	 }
+	},{
+	 {8,110},
+	 {{1,1,5,6,1,1}},
+	 {{7,1}},
+	 {
+	 	{0,3,14,6}
+	 }
+	},{
+		{8,8},
+		{
+		 {1,6,2,1,1,1},
+		 {12,10,3,1,1,1},
+		},
+		{{12,1}},
+		{
+			{0,2,9,4},{1,4,10,11},
+			{0,1,11,11},{0,1,10,9},
+			{0,3,9,7},{1,5,7,2},
+		},
+		{{5,1,4,1},{4,10,5,10}},
+		{},
+		{
+			{1,4,2,2,1,1,60,0},
+			{4,13,8,2,1,1,40,0}
+		},
+		{{8,3,1,6}}
+	},{
+		{8,16},
+		{
+			{10,1,3,5,1,1},
+			{3,14,3,1,1,1}
+		},
+		{{13,7}},
+		{
+		 {0,1,6,2},{0,1,6,3},
+			{0,6,13,12},{1,1,11,10},
+			{1,4,10,6},{1,2,10,7},
+			{1,2,10,8},{1,3,11,13}
+		},
+		{
+			{2,1,3,1},{2,3,3,3},
+			{3,5,2,5},{3,9,2,9},
+			{11,12,12,12},{11,12,12,12}
+		},
+		{{12,14,10,14}}
+	},{
+		{8,8},
+		{
+			{1,10,4,3,1,1},
+			{8,3,7,4,1,1}
+		},
+		{{10,1},{5,13}},
+		{
+			{0,1,12,5},
+			{0,1,12,6},
+			{0,1,12,7},
+			{1,8,14,11},
+			{1,8,14,12}
+	 },
+	 {{11,11,11,12}}
+	},{
+	 {25,110},
+	 {{1,1,5,5,1,2},
+	 	{2,2,3,5,1,2}},
+	 {{7,1}},
+	 {
+	 	{0,3,14,6}
+	 }
+	},{
+		{8,8},
+		{{6,12,7,3,1,1},{12,5,2,6,1,3}},
+		{{9,8}},
+		{
+			{0,1,10,6},{0,6,10,11},
+			{1,6,11,11},{0,1,10,8},
+		}
+	},{
+		{63,63},
+		{{1,1,1,1,1,1}}
+	}	
+}
 __gfx__
 000000000444444000000000044ff440000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0000000004fffff00444444004444440044ff4400000000000000000000000000000000000000000000100000000100000000000000000000000000000000000
@@ -451,22 +1228,22 @@ __gff__
 00000000000000000000000000000000010202080000000000002000000000000c0202000000000010010100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __map__
-1010101010101010101010101010101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1000000010101010101010100000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1000000000000000000000100000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1000000010000000000000100000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1000000010000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1000000000000010100000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1000000010000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1000000010000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1000000010000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1000000010101010100000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0010101010101010101010101010100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-1010101010101010101010101010101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+1010101010101010101010101010100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __sfx__
 000200001b050220502b0502e0502a050210501a050120501105015050180501e050280502c0502c0502a05027050220501b05015050100500b05008050000000000000000000000000000000000000000000000
 00100000210501f0501905017050140500e0500a05005050020500100003000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
