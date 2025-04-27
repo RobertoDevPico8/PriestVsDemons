@@ -8,7 +8,7 @@ function _init()
 	
 	for o in all(ol) do
   for i in all(il) do
-    add(es,newenemy(o*8,i*8,flr(rnd(2))))
+    add(es,newenemy(o*8,i*8,1))
   end
 	end
 end
@@ -32,6 +32,27 @@ end
 -- utils --
 sign = function(v)
 	return v == 0 and 0 or sgn(v)
+end
+
+anim=function(sf,d,t)
+	return {sprt=d,sf=sf,si=1,sl=count(sf),st=t}
+end
+
+updateanimation=function(o)
+	if o==nil 
+	 or o.si==nil
+	 or o.sl==1 then
+	 return o
+	end
+	
+ if o.si<o.sl+0.9 then
+  o.si+=o.st
+ else
+  o.si=1
+ end
+ 
+ o.sprt=o.sf[flr(o.si)] 
+ return o
 end
 
 rects_overlap = function(o1,o2)
@@ -101,7 +122,19 @@ p = {
 	x=8,
 	y=8,
 	spd=1,
-	box={x=0,y=0,w=8,h=8}	
+	box={x=0,y=0,w=8,h=8},
+	dirsprt={
+ 	anim({1,2},1,0.1),
+ 	anim({1,2},1,0.1),
+ 	anim({3,4},3,0.1),
+ 	anim({1,2},1,0.1),
+ 	anim({3,4},3,0.1),
+ 	anim({3,4},3,0.1),
+ 	anim({1,2},1,0.1),
+ 	anim({1,2},1,0.1)},
+ dirf={1,0,0,0,1,0,0,1},
+ fx=false,
+ fy=false,
 }
 
 p.update = function(this)
@@ -127,11 +160,16 @@ p.update = function(this)
 			this.y+= collwallx 
 					and sign(xy.dy)*1
 					or xy.dy
+	end
+	
+	if xy.dir>0 then
+	  this.s=updateanimation(this.dirsprt[xy.dir]).sprt
+	  this.fx=this.dirf[xy.dir]==1
 	end	
 end
 
 p.draw = function(this)
-	spr(this.s,this.x,this.y)
+	spr(this.s,this.x,this.y,1,1,this.fx,this.fy)
 end
 
 -->8
@@ -161,6 +199,7 @@ newenemy = function(x,y,t)
 			ctmr=ctmr,
 			fov={6,4,3},
 			box={x=1,y=3,w=6,h=4},
+			anmspt=anim({5,6,7},5,0.2)
 		}
 		
 		o.update = function(this)
@@ -275,6 +314,10 @@ newenemy = function(x,y,t)
 							box=this.box},{0,3})==false then
 				this.y=xy.y -- no collsion in y
 				didmv=true
+			end
+			
+			if didmv then
+				this.s=updateanimation(this.anmspt).sprt
 			end
 			
 			if this.tmr<=0 then
